@@ -1,0 +1,250 @@
+---
+title: "Not So Standard Deviation Transcript Analysis"
+author: "Eric Collins"
+date: 10/22/2021
+output:
+        prettydoc::html_pretty:
+                theme: hpstr
+---
+
+I was listening to another podcast (Your Mom's House), and another Eric, (who also happens to be another public-education data analyst) submitted an analysis of the episodes using transcripts of the episode. I wanted to add some language processing to my repertoire, so I decided to perform a similar analysis for my favorite podcast, Not-so-Standard Deviations. 
+
+As previously mentioned, I borrowed heavily from Eric Ekholme's analysis of Your Mom's House, which can be found at his [website](www.ericekholm.com). I recommend giving it a visit, he does Tidy Tuesday, where he posts a cool visualization about some cool data. 
+
+```{r setup1, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE , fig.height = 4, fig.width = 6, dpi = 300,fig.align = 'center')
+```
+
+```{r setup2}
+library(tidyverse)
+library(tidytext)
+library(ggthemes)
+library(ggrepel)
+library(ggwordcloud)
+library(ggtext)
+
+
+
+scripts <- read_csv("transcripts.csv", show_col_types = FALSE)
+
+scripts <- scripts %>%
+        mutate(ep_num = substr(title, 0,3)) %>%
+        mutate(ep_num = as.numeric(ep_num))
+
+#Tidying the dataset to one episode per row
+
+scripts_one <- scripts %>%
+        group_by(ep_num) %>%
+        mutate(full_text = str_c(text, collapse = " ") %>%
+        str_to_lower()) %>%
+        mutate(ep_length = (max(start) + max(duration)) / 60) %>%
+        select(published_date, title, ep_num, full_text, ep_length) %>%
+        distinct() %>%
+        ungroup()
+
+```
+
+### Data Collection and Processing
+
+The process for data collection was pretty interesting. Youtube automatically generates a transcript of any video using their auto-generated captions and they can be accessed using the Google API. A tool was built at www.williamsportwebdeveloper.com/FaxBackUp.aspx that accesses the Google API and uses a Youtube playlist link to download the Youtube URLs of all the videos in a Youtube playlist. Those URLs can then be used to extract the auto-generated transcripts using the youtubecaptions package. That code can be found on the [git-hub repo](LINK GOES HERE) for the project. Again, this was discovered by Eric Ekohlm. 
+
+There are a few restrictions in accessing the data this way:
+
+1. The data are auto-generating, so transcription is not perfect.
+2. The speaker is not tagged, so there's no way to tell if Roger or Hilary is speaking.
+3. I can only get data from episodes on Youtube, so according to my extremely limited research that's episodes 71-143.
+4. Data were not able to be collected for *Episode 119 - Election Night Data Science* because captions were turned off for the episode.
+
+
+### Analysis
+
+There are 71 episodes available for analysis. Let's begin by looking at episode length.
+
+```{r}
+
+#Pink from logo
+pink <- "#cd509b"
+#Grey from logo
+grey <- "#7c7270"
+
+
+episode_length_for_highlight <- scripts_one %>%
+        filter(ep_length < 20 | ep_length > 80)
+
+length_min_max <- scripts_one %>%
+        filter(ep_length == max(ep_length) | ep_length == min(ep_length))
+
+ggplot(data = scripts_one, mapping = aes(x = ep_num, y = ep_length)) +
+        geom_line(color = "black", size = 2) +
+        geom_line(color = pink, size = 1.4) + 
+        geom_point(color = grey, alpha = .5) + 
+        geom_point(episode_length_for_highlight, mapping = aes(x = ep_num, y = ep_length), color = "red") +
+        geom_label_repel(episode_length_for_highlight, mapping = aes(label = title)) +
+        geom_point(data = length_min_max, mapping = aes(x = ep_num, y = ep_length), color = "blue") +
+        geom_smooth(data = scripts_one, method = "lm", se = FALSE, color = "black") +
+        labs(title = "Length of NSSD Episodes") +
+        xlab("Episode Number") +
+        ylab("Length of Episode (Minutes)") +
+        theme_hc()
+
+
+```
+
+Generally, episodes have been having a downward trend in total time. The shortest episode is *95 - Summarisze*, and the longest episode is *117 - Failing in Statistics*. I don't know why episodes were so short in the upper 90's episodes, but it's an interesting trend. 
+
+
+Let's look at the actual words that were spoken now. First, the most common word across all episodes, while eliminating the common stop words. 
+
+
+```{r}
+words <- scripts_one %>%
+        unnest_tokens(word, full_text) %>%
+        anti_join(stop_words) %>%
+        filter(!(word %in% c("yeah", "um", "uh", "stuff", "people", "lot", "gonna")))
+
+
+top20 <- words %>%
+        count(word) %>%
+        slice_max(n = 20, order_by = n)
+        
+
+ggplot(data = top20, mapping = aes(label = word, size = n, color = n)) +
+        geom_text_wordcloud() +
+        scale_size_area(max_size = 20) +
+        scale_color_gradient(low = grey, high = pink) +
+        theme_hc()
+
+```
+
+It would appear our hosts spend of a lot of time guessing how they feel about data. An interesting note is that coffee and tea don't come up at all, so let's see just how often our hosts talk about their favorite beverages (my personal favorite parts of the podcast).
+
+```{r}
+beverages <- data.frame(word = c("tea", "coffee", "analysis"))
+
+interesting_df <- scripts_one %>%
+        unnest_tokens(word, full_text) %>%
+        anti_join(stop_words) %>%
+        filter(!(word %in% c("yeah", "um", "uh", "stuff", "people", "lot", "gonna"))) %>%
+        left_join(beverages, .) %>%
+        drop_na() %>%
+        count(ep_num, word)
+
+min_max_coffee <- interesting_df %>%
+        group_by(word) %>%
+        filter(n == max(n))%>%
+        filter(word == "coffee" | word == "tea") 
+
+
+cols <- c("coffee" = pink, "analysis" = grey, "tea" = "#8074ac")
+
+ggplot(data = interesting_df, mapping = aes(x = ep_num, y = n, group = word, color = word)) +
+        geom_label_repel(data = min_max_coffee, mapping = aes(label = ep_num), 
+                         color = "black", size = 5.3, nudge_x = -5, nudge_y = 12, show.legend = FALSE) +
+        geom_label_repel(data = min_max_coffee, mapping = aes(label = ep_num), 
+                         size = 5, alpha = .5, nudge_x = -5 ,nudge_y = 12, show.legend = FALSE) +
+        geom_point() +
+        geom_line(size = 2, color = "black") +
+        geom_line(size = 1.4) +
+        labs(title = "Counts of <span style='color:#cd509b'>Coffee</span> and <span style='color:#8074ac'>Tea</span> against <span style='color:#7c7270'>Analysis</span>") +
+        xlab("Episode Number") +
+        ylab("Count of Word") +
+        scale_color_manual(values = cols, aesthetics = "color")+
+        theme_hc()+
+        theme(plot.title = element_markdown(), legend.position = "none")
+
+
+```
+*Episode 129 - Monetizing False Positives* had the most references to coffee (26) and *Episode 140 - Booboo Detection* had the most references to tea. I think it's worthwhile to plot these again, but instead of analysis, using "data" as our benchmark
+
+```{r}
+beverages <- data.frame(word = c("tea", "coffee", "data"))
+
+interesting_df <- scripts_one %>%
+        unnest_tokens(word, full_text) %>%
+        anti_join(stop_words) %>%
+        filter(!(word %in% c("yeah", "um", "uh", "stuff", "people", "lot", "gonna"))) %>%
+        left_join(beverages, .) %>%
+        drop_na() %>%
+        count(ep_num, word)
+
+min_max_coffee <- interesting_df %>%
+        group_by(word) %>%
+        filter(n == max(n))%>%
+        filter(word == "coffee" | word == "tea") 
+
+
+cols <- c("coffee" = pink, "data" = grey, "tea" = "#8074ac")
+
+ggplot(data = interesting_df, mapping = aes(x = ep_num, y = n, group = word, color = word)) +
+        geom_point() +
+        geom_line(size = 2, color = "black") +
+        geom_line(size = 1.4) +
+        labs(title = "Counts of <span style='color:#cd509b'>Coffee</span> and <span style='color:#8074ac'>Tea</span> against <span style='color:#7c7270'>Data</span> by Episode") +
+        xlab("Episode Number") +
+        ylab("Count of Word") +
+        scale_color_manual(values = cols, aesthetics = "color") +
+        theme_hc()+
+        theme(plot.title = element_markdown(), legend.position = "none")
+```
+
+
+Normally on episodes where coffee is mentioned, there is less talk about data. However, data is still the dominate topic of conversation. I think a good take-away is that our hosts should talk about coffee and tea for more than they do.
+
+But let's say you don't like hearing about coffee or tea. Where should you stop listening or start listening to avoid the coffee talk (or if you're like me try to find the coffee talk)?
+
+We can place words into segments by when they were said so we can plot word counts by minute in the episode across all episodes. 
+
+```{r}
+segments <- scripts %>%
+        unnest_tokens(word, text) %>%
+        group_by(title) %>%
+        mutate(time = ((start + duration) / 60)) %>%
+        mutate(group = round(time)) %>%
+        ungroup() %>%
+        count(group, word)
+
+interesting_segments <- segments %>%
+        filter(word == "data" | word == "coffee")
+
+cols <- c("coffee" = pink, "data" = grey)
+        
+
+ggplot(data = interesting_segments, mapping = aes(x = group, y = n, color = word, group = word)) + 
+        geom_point() + 
+        geom_smooth(size = 2, color = "black", se = FALSE) +
+        geom_smooth(size = 1.4, se = FALSE) +
+        labs(title = "Counts of <span style='color:#cd509b'>Coffee</span> against <span style='color:#7c7270'>Data</span>") +
+        xlab("Minute of Episode (Across all Episodes)") +
+        ylab("Count of Word") +
+        scale_color_manual(values = cols, aesthetics = "color") +
+        theme_hc()+
+        theme(plot.title = element_markdown(), legend.position = "none")
+        
+
+
+```
+
+If you want to avoid coffee talk, start your episodes around the 20 minute mark. If you only want to hear about coffee, only listen to the first 20 minutes of the episode. 
+
+
+### Key Takeaway
+
+Our hosts should be spending additional time discussing coffee, and should significantly increase their time discussing tea. 
+
+### Limitations and Further Research
+
+Limitations were discussed at the beginning of the analysis, and are primarily focused on the limitations of accessing the data. While the process was simple, it doesn't result in the largest dataset. Eventually this process could be rerun to see if the hosts change topics significantly over time. 
+
+It would be highly interesting if we could build a model that could predict episode "success" based on previous transcripts. Unfortunately, I don't have simple access to metrics, and it appears most people don't watch the podcast on Youtube. Conglomerating all metrics across all podcasting mediums would be time-consuming at best and a full-time job at worst. In addition, optimizing the podcast could result in it becoming more niche and less interesting and inviting to new listeners, but the process could be interesting nonetheless.
+
+### Thanks and Citations
+
+Thank you for taking the time to look at and review this document. I'm a huge fan of the podcast and the Coursera courses. 
+
+Thank you to Eric Ekholm for posting his analysis and sharing it on Your Mom's House.
+
+EE (2020, Sept. 20). Eric Ekholm: Your Mom's House Analysis. Retrieved from
+https://www.ericekholm.com/posts/2021-01-11-your-moms-house-analysis/
+
+
+

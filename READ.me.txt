@@ -1,0 +1,11 @@
+Welcome to the NSSD Analysis Github Repo. 
+
+The process for conducting the analysis was
+
+1.  Add all the NSSD podcasts available on Youtube to a playlist
+
+2.  Use the tool found at www.williamsportwebdeveloper.com/FaxBackUp.aspx to compile a spreadsheet of Youtube URLs 
+
+3.  Use Transcript Extraction.R to compile the transcripts for each URL in the spreadsheet
+
+4.  Use NSSD Analysis to complile the data as necessary for particular visualizations.
